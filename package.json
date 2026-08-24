@@ -1,0 +1,29 @@
+{
+  "name": "@venelx/mcp",
+  "version": "0.1.0",
+  "description": "MCP server that lets AI assistants operate the Venelx CI/CD platform via its REST API",
+  "type": "module",
+  "bin": {
+    "venelx-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  }
+}
