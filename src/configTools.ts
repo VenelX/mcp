@@ -7,6 +7,8 @@
  * merges first — a partial update never wipes the rest.
  */
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import { z } from 'zod';
 import { del, get, patch, post, put } from './client.js';
 
@@ -52,6 +54,24 @@ function assertBranchName(branch: string): void {
     throw new Error(`"${branch}" is not a valid git branch name.`);
   }
 }
+
+/** One env var per synced file, e.g. app/google-services.json → VENELX_FILE_APP_GOOGLE_SERVICES_JSON. */
+function buildFileEnvKey(dest: string): string {
+  return `VENELX_FILE_${dest.replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '').toUpperCase()}`.slice(0, 120);
+}
+
+/**
+ * Build step that writes every VENELX_FILE_* env var ({p: path, d: base64}) into the
+ * workspace. Written to pass the build-command validator: one `node -e` command with
+ * no ` && ` / ` || ` / ` ; ` (the chain splitter), `$(`, `${`, backticks or pipes.
+ */
+export const BUILD_FILES_COMMAND =
+  `node -e "const fs=require('fs');const path=require('path');let n=0;` +
+  `for (const [k,v] of Object.entries(process.env)) {if (!k.startsWith('VENELX_FILE_')) continue;` +
+  `const f=JSON.parse(v);const rel=path.normalize(f.p);` +
+  `if (path.isAbsolute(rel)||rel.startsWith('..')) throw new Error('bad build file path '+f.p);` +
+  `fs.mkdirSync(path.dirname(rel),{recursive:true});fs.writeFileSync(rel,Buffer.from(f.d,'base64'));n++;` +
+  `console.log('wrote '+rel)}console.log(n+' build file(s) written')"`;
 
 const REDACTED = '••••••••';
 
@@ -395,6 +415,76 @@ export function registerConfigTools(server: McpServer, tool: ToolWrapper): void 
       if (!matches.length) throw new Error(`No env var named ${key}.`);
       for (const r of matches) await del(`/api/${id}/settings/env-vars/${enc(r.id)}`);
       return { message: `${key} deleted`, rowsRemoved: matches.length };
+    })
+  );
+
+  // ─── Build files (gitignored config the build needs) ────────────────────
+
+  server.registerTool(
+    'sync_build_files',
+    {
+      description:
+        'Upload gitignored files a build needs — google-services.json, GoogleService-Info.plist, ' +
+        'a keystore, local.properties, .env — from THIS machine to the project. Each file is stored ' +
+        'encrypted as a VENELX_FILE_* env var and written into the build workspace (relative to the ' +
+        'project rootDirectory) by a "build-files" step added before every target\'s build. ' +
+        'Re-running replaces the same paths; other synced files are kept. For a file named ' +
+        'local.properties, sdk.dir / ndk.dir lines are dropped (the worker sets its own SDK). ' +
+        'Needs Venelx worker 0.1.99+ (earlier workers do not pass env vars to build steps).',
+      inputSchema: {
+        projectId: projectIdSchema,
+        files: z
+          .array(
+            z.object({
+              path: z.string().min(1).describe('Destination, relative to the project rootDirectory, e.g. "app/google-services.json"'),
+              localFile: z.string().min(1).describe('Absolute path of the file on this machine'),
+            })
+          )
+          .min(1)
+          .max(20),
+      },
+    },
+    tool(async ({ projectId, files }: { projectId: string; files: { path: string; localFile: string }[] }) => {
+      const id = enc(projectId);
+      const prepared = await Promise.all(
+        files.map(async (f) => {
+          const dest = normalizeRootDirectory(f.path);
+          if (!dest) throw new Error(`Invalid destination path "${f.path}".`);
+          let data = await readFile(f.localFile);
+          if (path.basename(dest) === 'local.properties') {
+            data = Buffer.from(
+              data
+                .toString('utf8')
+                .split('\n')
+                .filter((l) => !/^\s*(sdk|ndk)\.dir\s*=/.test(l))
+                .join('\n')
+            );
+          }
+          if (data.length > 256 * 1024) throw new Error(`${f.localFile} is over 256 KB — too large for a build file.`);
+          return { dest, key: buildFileEnvKey(dest), value: JSON.stringify({ p: dest, d: data.toString('base64') }), bytes: data.length };
+        })
+      );
+
+      for (const f of prepared) {
+        await post(`/api/${id}/settings/env-vars`, { key: f.key, value: f.value, isSecret: true });
+      }
+
+      // Make sure every target writes the files before it builds.
+      const current = (await get(`/api/${id}/build-stack/pipeline`)) as { pipelineConfig?: PipelineConfig };
+      const config = current.pipelineConfig ?? {};
+      const step: PipelineStep = { id: 'build-files', name: 'Write build files', command: BUILD_FILES_COMMAND, enabled: true };
+      const next: PipelineConfig = Object.fromEntries(
+        Object.entries(config).map(([k, steps]) => [k, [step, ...steps.filter((s) => s.id !== 'build-files')]])
+      );
+      if (!Object.keys(next).length) next.default = [step];
+      await put(`/api/${id}/build-stack/pipeline`, { pipelineConfig: next });
+
+      return {
+        message: `${prepared.length} build file(s) synced`,
+        files: prepared.map((f) => ({ path: f.dest, envVar: f.key, bytes: f.bytes })),
+        stepAddedTo: Object.keys(next),
+        note: 'Files are written at build time from the project rootDirectory. Remove one with delete_env_var <envVar>.',
+      };
     })
   );
 

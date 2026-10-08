@@ -148,6 +148,7 @@ Then point your MCP client config at the local build:
 | `list_web_sites` / `create_web_site` / `update_web_site` / `delete_web_site` | read / **write** | Playwright web-test sites. `delete_web_site` is permanent. |
 | `get_web_site_config` / `update_web_site_config` | read / **write** | Targets, no-code flows, schedule, triggers, notifications. Credentials are masked on read and kept when sent back masked. |
 | `run_web_test` / `web_test_runs` / `approve_web_baseline` | **write** / read / **write** | Queue a web test, read results, accept screenshots as the visual baseline. |
+| `sync_build_files` | **write** | Upload gitignored files the build needs (google-services.json, keystore, local.properties, .env) from this machine; written into the build workspace before every target's build. `sdk.dir` is dropped from local.properties. Needs worker 0.1.99+. |
 | `set_web_site_secrets` / `validate_web_flow` | **write** | Secrets for repo-mode site builds; check a flow without saving. |
 
 ### Local signing sync — limitations
