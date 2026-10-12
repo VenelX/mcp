@@ -151,6 +151,29 @@ Then point your MCP client config at the local build:
 | `sync_build_files` | **write** | Upload gitignored files the build needs (google-services.json, keystore, local.properties, .env) from this machine; written into the build workspace before every target's build. `sdk.dir` is dropped from local.properties. Needs worker 0.1.99+. |
 | `set_web_site_secrets` / `validate_web_flow` | **write** | Secrets for repo-mode site builds; check a flow without saving. |
 
+### Onboarding and workers
+
+| Tool | Scope | What it does |
+| --- | --- | --- |
+| `detect_project_setup` | read | Scan a local repo (read-only): GitHub URL, branch, stack, app folder, platforms, env var names, gitignored build files |
+| `create_project` | write | Create a project linked to a GitHub repo and register the webhook |
+| `worker_install_command` | read | One-line worker install command (macOS/Linux/Windows) |
+| `worker_metrics` | read | CPU / memory / disk / queue history for a worker |
+| `worker_usage` | read | Build minutes and builds per worker for a month |
+| `assign_worker_team` | write | Assign a worker to a team (or clear it) |
+
+### Set up a project with one prompt
+
+Paste this into your MCP client from the repo you want to build (also in the docs at
+https://docs.venelx.com/mcp):
+
+```text
+Set up this repository on Venelx using the venelx MCP server. Run detect_project_setup and show me
+the result, then create_project with the detected values, set env vars (ask me for values; never read
+my .env), sync gitignored build files and signing only after I approve, make sure a worker is online
+(worker_install_command if not), then trigger_build and follow the logs. Never print secrets.
+```
+
 ### Local signing sync — limitations
 
 - **iOS only supports one extra provisioning profile per project today** (whichever sub-bundle-ID

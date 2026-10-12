@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { ApiError, apiUrl, get, post, postMultipart } from './client.js';
 import { runLogin } from './login.js';
 import { registerConfigTools } from './configTools.js';
+import { registerProjectTools } from './projectTools.js';
 import {
   discoverAndroidKeystore,
   discoverIosKeychainIdentities,
@@ -40,7 +41,7 @@ const TOKEN_SETUP_HINT =
 
 const server = new McpServer({
   name: 'venelx',
-  version: '0.1.2',
+  version: '0.1.3',
 });
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -682,6 +683,7 @@ server.registerTool(
 );
 
 registerConfigTools(server, tool);
+registerProjectTools(server, tool);
 
 // ─── Startup / shutdown ─────────────────────────────────────────────────────
 
